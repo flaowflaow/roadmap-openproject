@@ -1,0 +1,35 @@
+# --- DATA & LOCAL STORAGE ---
+# Ne pas tracker les données persistantes des bases de données et d'OpenSearch
+.data/
+**/data/
+*.log
+
+# --- SECURITY & SECRETS ---
+# Ne jamais pousser les fichiers d'environnement contenant des mots de passe ou tokens
+dev/.env.dev
+.env
+*.key
+*.pem
+
+# --- DOCKER ---
+# Ignorer les fichiers temporaires Docker si nécessaire
+.docker/
+# Si tu utilises des certificats locaux pour Traefik
+proxy/traefik/acme.json
+
+# --- OS & IDE ---
+# Fichiers spécifiques au système d'exploitation
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Configuration de l'éditeur (VS Code, JetBrains)
+.vscode/
+.idea/
+*.swp
+
+# --- PROJECT SPECIFIC ---
+# Ignorer les dossiers de build ou temporaires si tu génères des assets localement
+node_modules/
+dist/
+tree-keep.ps1

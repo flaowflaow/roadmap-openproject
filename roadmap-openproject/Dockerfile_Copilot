@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.6
+
+############################
+# 1) Builder RUBY (gems)
+############################
+FROM ruby:3.2-alpine AS ruby-builder
+WORKDIR /build
+
+# Paquets build natifs + NodeJS pour pipeline front minimal
+RUN apk add --no-cache \
+    build-base git bash tzdata \
+    postgresql-dev libffi-dev openssl-dev \
+    nodejs npm imagemagick file
+
+# Variables de build (pin possible depuis l’arg OP_TAG)
+ARG OP_TAG=release/13.1
+# On récupère les sources OpenProject
+RUN git clone --depth=1 --branch ${OP_TAG} https://github.com/opf/openproject.git .
+# Install bundler et gems (prod only)
+RUN gem install bundler -v "~>2" \
+ && bundle config set without 'development test' \
+ && bundle install --jobs=4 --retry=3
+
+############################
+# 2) Builder ASSETS (front)
+############################
+FROM ruby:3.2-alpine AS assets-builder
+WORKDIR /build
+RUN apk add --no-cache nodejs npm
+COPY --from=ruby-builder /build /build
+# Precompile assets (clé fictive)
+RUN npm ci --no-audit --no-fund || npm install \
+ && RAILS_ENV=production SECRET_KEY_BASE=dummy \
+    bundle exec rake assets:precompile
+
+############################
+# 3) Runtime Alpine non-root
+############################
+FROM alpine:3.19 AS runtime
+LABEL maintainer="RoadMap-OpenProject"
+WORKDIR /app
+
+# Dépendances runtime (Ruby, Node pour quelques helpers, tzdata, imagemagick, psql client)
+RUN apk add --no-cache \
+    ruby ruby-bundler ruby-json ruby-bigdecimal ruby-etc \
+    nodejs tzdata imagemagick postgresql-client \
+    su-exec bash curl ca-certificates tini
+
+# Utilisateur non-root
+RUN addgroup -S openproject && adduser -S openproject -G openproject
+
+# Copie code + gems + assets
+COPY --from=ruby-builder  /build /app
+COPY --from=assets-builder /build/public /app/public
+
+# Dossiers de données
+RUN mkdir -p /var/openproject/assets /etc/openproject/conf.d \
+ && chown -R openproject:openproject /var/openproject /etc/openproject /app
+
+ENV RAILS_ENV=production \
+    PORT=8080 \
+    OPENPROJECT_HTTPS=true
+
+EXPOSE 8080
+USER openproject
+
+# Healthcheck simple (page d’accueil)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
+  CMD bash -lc "curl -fsS http://127.0.0.1:${PORT}/ || exit 1"
+
+ENTRYPOINT ["/sbin/tini","--"]
+CMD ["bash","-lc","bundle exec puma -C config/puma.rb -p ${PORT}"]
